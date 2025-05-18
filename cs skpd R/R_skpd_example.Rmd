@@ -1,0 +1,61 @@
+---
+title: "2-D SKPD Simulation (Butterfly)"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+library(RcppCNPy)
+library(pROC)
+source("skpd_tensor_utils_full.R")
+source("skpd_classifier_full_fix.R")
+```
+
+## 2D simulation
+
+
+```{r cars}
+shape <- npyLoad("data/butterfly.npy")          # 128×128 template
+N <- 300; N1 <- 150; sigma <- 1
+set.seed(539)
+X <- array(0, c(N,128,128)); Y <- integer(N)
+X[1:N1,,]<- rep(shape, each=N1) + rnorm(N1*128*128, 0, sigma)
+X[(N1+1):N,,] <- rnorm((N-N1)*128*128, 0, sigma)
+Y[1:N1]<- 1
+
+set.seed(42)
+idx <- sample(N)
+train_idx <- idx[1:floor(0.8*N)]
+val_idx   <- idx[-train_idx]
+
+Ds_train <- lapply(train_idx, function(i) list(X[i,,], X[i,,], Y[i]))
+Ds_val   <- lapply(val_idx,   function(i) list(X[i,,], X[i,,], Y[i]))
+
+
+
+```
+### model
+
+```{r}
+hp <- list(
+  p1=16,d1=8,p2=16,d2=8,p3=1,d3=1,
+  term=1, lmbda_a=0.8, lmbda_b=0.5, lmbda_gamma=0,
+  alpha=0.2, normalization_A=TRUE, normalization_B=FALSE,
+  use_cyclic=TRUE, max_iter=50
+)
+hp$s1 <- hp$p1*hp$p2*hp$p3
+hp$s2 <- hp$d1*hp$d2*hp$d3
+
+model <- SKPD_LogisticRegressor_Cyclic$new(hp, Ds=Ds_train,
+                                           max_iter=hp$max_iter, verbose=TRUE)
+model$fit()
+
+p_hat <- model$predict_proba(lapply(Ds_val, `[[`, 1),
+                             lapply(Ds_val, `[[`, 2))
+acc <- mean((p_hat>0.5) == Y[val_idx])
+auc <- as.numeric(pROC::auc(Y[val_idx], p_hat))
+cat(sprintf("Validation  ACC = %.4f  Validation  AUC = %.4f", acc, auc))
+
+
+
+```
+
